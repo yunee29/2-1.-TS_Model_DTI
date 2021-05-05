@@ -1,0 +1,256 @@
+---
+title: "DTI_Modeling"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Modeling
+
+```{r}
+library(refund)
+data(DTI); attach(DTI)
+names(DTI)
+
+DTI.complete <- subset(DTI, complete.cases(DTI))
+DTI.baseline <- subset(DTI.complete, visit == 1 & case == 1)
+n <- length(unique(DTI.baseline$ID))
+
+tract <- 1:93
+dim(DTI.baseline$cca)
+
+y.lprec <- DTI.baseline$cca
+y <- y.lprec[1,]
+plot(tract, y, 
+    pch = 1, cex = 0.5, col='royalblue2',
+     xlab="tract", ylab="CCA",
+     main="CCA of 2003_1")
+
+library(fda)
+
+rangval=range(tract) ; period = 93 
+nbasis = 3 #nbasis = 13, nbasis = 27, and nbasis 
+fbasis=create.fourier.basis(rangval, nbasis=nbasis, period=period)  
+bvals = eval.basis(tract, fbasis)
+Xbasis =bvals; 
+
+lm.fit = lm(y ~ 0 + Xbasis)   
+y.fit = lm.fit$fitted.values; coef= lm.fit$coefficient
+
+par(mfrow=c(2,1))
+plot(tract, y, type="n",lwd=4, col="black",
+     xlab="tract", ylab="CCA", 
+     main=paste(nbasis, "Fourier fns"), cex=1)
+points(tract, y, pch=1, cex=.5, col="blue", lwd=1)
+lines(tract, lm.fit$fitted.values, lwd=1, col="red")
+
+## Second Derivative of the fit evaluated at tract
+
+yfitfd = fd(coef,fbasis)  #obtain FD object
+yfit2D = eval.fd(tract, yfitfd, 2) # evaluate the 2nd deriv. of the fit at tract
+plot(tract, yfit2D, type="l",lwd=2, col="black", 
+     xlab="tract", ylab="CCA", 
+     main=paste("mean squares of 2D CCA = ", 
+                round(mean(yfit2D^2),2)))
+
+par(mfrow=c(1,1))
+library(mgcv)
+fit <- gam(y~s(tract, k = 10, bs = "cr"), method="REML")
+# names(fit)
+yhat <- fit$fitted
+
+plot(tract, y, type="n", 
+     xlab="tract", ylab="mean CCA", main="2003_1")
+points(tract, y, pch=1, col="blue", cex=.5)
+lines(tract,  yhat, lwd=2, col="black")
+
+Xtrue = yhat   # "true" underlying curve
+Eps = y - yhat      # residual
+m=length(Eps)
+
+set.seed(1)
+Eps.star = sample(Eps, m, replace=T)
+Y.star = Xtrue + Eps.star 
+
+K.vec = 2*c(2:8)+1;    # we consider 7 different values of k.
+# K.vec
+library(fda)
+fbasis=create.fourier.basis(rangeval = c(1, 93), nbasis=max(K.vec), period=93)
+bvals = eval.basis(tract,fbasis)
+
+Xfit = array(0, c(m, length(K.vec)))
+index=0
+for (K in K.vec){
+  index=index+1
+  Xbasis = bvals[, 1:K]
+  lm.fit = lm(Y.star~0+Xbasis)
+  Xfit[,index] = as.vector(lm.fit$fitted.values)
+}
+
+plot(tract, Y.star, pch = 1, cex = 0.5, col='grey',
+     xlab="tract", ylab="Y.star",
+     main="Simulated Dataset")
+lines(tract,  yhat, lwd=2, col="black")   # truth
+lines(tract, Xfit[,1], lwd=2, col="red")
+lines(tract, Xfit[,7], lwd=2, col="blue")
+
+K.vec = 2*c(2:8)+1; 
+
+## pretend 
+Xtrue = yhat
+Eps = y - Xtrue ; m=length(Eps)
+B=100 #B=10000
+
+Xfit = array(0, c(B, m, length(K.vec)))
+
+fbasis=create.fourier.basis(rangeval = c(1,365), nbasis=max(K.vec), period=365)
+bvals = eval.basis(tract,fbasis)
+
+set.seed0=1234
+for(b in 1:B){#b=1
+  set.seed(set.seed0+b)
+  Eps.star = sample(Eps, m, replace=T)
+  Y.star = Xtrue + Eps.star 
+  
+  # fit using Fourier basis and K basis functions
+  index=0
+  for (k in K.vec){
+    index=index+1
+    Xbasis = bvals[, 1:k]
+    lm.fit = lm(Y.star~0+Xbasis)
+    Xfit[b,,index] = as.vector(lm.fit$fitted.values)
+  }
+}
+
+Mean.Est = apply(Xfit, c(2,3), mean)
+Mean.Est2 = apply(Xfit, c(2,3), function(x) mean(x^2))
+
+Bias = apply(Mean.Est, 2, function(x) Xtrue-x)
+Var = Mean.Est2 - (Mean.Est)^2
+Mse= Bias^2+Var
+
+Mean_Bias2_L2 = apply(Bias^2, 2, mean) 
+Var_L2 = apply(Var, 2, mean) 
+MSE_L2 = apply(Mse, 2, mean)
+
+plot(K.vec, Mean_Bias2_L2, type="n", cex=2, 
+     xlab="Number of basis functions", ylab="Total squared error", 
+     ylim=range(cbind(Mean_Bias2_L2, MSE_L2)))
+
+points(K.vec, Mean_Bias2_L2, type='b', col="darkgreen", lwd=2)
+points(K.vec, Var_L2, type='b', col="blue", lwd=2)
+points(K.vec, MSE_L2, type='b', col="orange", lwd=2)
+
+K.vec = 2*c(2:8)+1; 
+CVfit = matrix(0,  nrow=m, ncol=length(K.vec))
+for(j in 1:m){
+  
+  Y.star = y[-j]
+  
+  # fit using Fourier basis and K basis functions
+  index=0
+  for (K in K.vec){
+    index=index+1
+    Xbasis=bvals[, 1:K];
+    Xbasis.j =  Xbasis[-j, ]; 
+    lm.fit = lm(Y.star~0+Xbasis.j); Xbasis.coeff = lm.fit$coefficients
+    y.fit = Xbasis%*%Xbasis.coeff
+    CVfit[j,index] = (y[j] - y.fit[j])^2
+  }
+}
+
+CV_L2 = apply(CVfit, 2, sum)
+plot(K.vec, CV_L2, type="n",
+     xlab="Number of basis functions", ylab="Total cross-validation error")
+points(K.vec, CV_L2, type='b', col="royalblue2", lwd=2)
+title(paste0("K = ", K.vec[which(CV_L2==min(CV_L2))], " with the smallest CV score!"))
+```
+
+## Smoothing with Roughness Penalty
+
+```{r}
+ybasis  <- create.bspline.basis(rangeval = c(1,93), nbasis = 93, norder=4)
+
+bvals = eval.basis(tract, ybasis)
+Xbasis =bvals; 
+lm.fit = lm(y ~ 0 + Xbasis)   
+y.fit = lm.fit$fitted.values
+
+plot(tract, y, type="n",lwd=4, col="black",
+     xlab="day", ylab="tract", 
+     main=paste(93, "Fourier fns"), cex=1)
+points(tract, y, pch=1, cex=.5, col="blue", lwd=1)
+lines(tract, lm.fit$fitted.values, lwd=1, col="red")
+
+lambda <- 10^4
+
+# int2Lfd(m)  : use this to define the m-th order derivative penalty term
+# fdPar() : defines functional parameters; in this case the 2nd order derivative penalty term and the smoothing parameter.
+
+# ybasis  <- create.bspline.basis(rangeval = c(1,365), nbasis = 365, norder=4)
+tD2fdPar = fdPar(ybasis, Lfdobj=int2Lfd(2), lambda=lambda)
+
+# smooth.basis() : smoothes the data using the roughness penalty and smoothing parameter specified in 'tD2fdPar' 
+tyfd = smooth.basis(tract,y,tD2fdPar) 
+
+#names(tyfd)
+#[1] "fd"      "df"      "gcv"     "beta"    "SSE"     "penmat"  "y2cMap"     
+#    "argvals" "y"    
+
+# fd   a functional data object containing a smooth of the data.
+# df     a degrees of freedom measure of the smooth
+# gcv  the value of the generalized cross-validation or GCV criterion. 
+# beta the regression coefficients associated with covariate variables. 
+# SSE    the error sums of squares. 
+# penmat:the penalty matrix.
+# y2cMap     the matrix mapping the data to the coefficients: 
+#          (Phi^T Phi + R)^(-1) \Phi^T
+
+main.label = paste("2003_1 (lambda =", round(lambda,2), ")", sep="")
+plot(tract, y, type="n", ylim=range(y), 
+     ylab="tract", xlab="day", main=main.label)
+points(tract, y, pch=1, cex=.5, col="blue", lwd=1)
+lines(tyfd$fd,col="red",lwd=4)
+
+# optimal λ
+logl=seq(-5, 12, len=71)  
+range(exp(logl))
+
+gcv = rep(0,71)
+
+for(i in c(1:length(logl))){
+  lambda=exp(logl[i])
+  
+  tD2fdPar = fdPar(ybasis,Lfdobj=int2Lfd(2),lambda=lambda)
+  tyfd = smooth.basis(tract,y,tD2fdPar)
+  
+  gcv[i] = tyfd$gcv
+}
+
+# PLOT GCV of FIT versus log lambda
+plot(logl,gcv[1:71],type='l',cex.lab=1.5, lwd=4, 
+     xlab='log lambda',ylab='GCV', main="GCV(log.lambda)")
+
+index.logl.opt = which(gcv==min(gcv))
+lambda.opt = exp(logl[index.logl.opt])
+tD2fdPar = fdPar(ybasis,Lfdobj=int2Lfd(2),lambda=lambda.opt)
+tyfd = smooth.basis(tract,y,tD2fdPar)
+
+plot(tract, y, type="n", ylab="CCA", xlab="tract", ylim=range(y), 
+     main=paste("optimal lambda = ", round(lambda.opt)))
+points(tract, y, pch=1, cex=.5, col="blue", lwd=1)
+lines(tyfd$fd,col="red",lwd=4)
+
+```
+
+## GAM
+```{r}
+fit = gam(y ~ s(tract, k = 30, bs = "cr"), method = 'REML' )
+  plot(tract, y, type="n", ylab="CCA", xlab="tract", ylim=range(y), 
+     main="using gam function (REML)")
+  points(tract, y, pch=1, cex=.5, col="blue", lwd=1)
+  lines(tract, fit$fitted.values, col="red", lwd=2)
+```
+

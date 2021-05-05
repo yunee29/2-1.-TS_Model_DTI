@@ -1,0 +1,125 @@
+---
+title: "DTI"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data, EDA
+### plot, mean
+
+```{r}
+library(refund)
+data(DTI); attach(DTI)
+names(DTI)
+
+DTI.complete <- subset(DTI, complete.cases(DTI)) #NA 처리
+DTI.baseline <- subset(DTI.complete, visit == 1 & case == 1)
+tract <- 1:93
+n <- length(unique(DTI.baseline$ID)) #66
+dim(DTI.baseline$cca) #66 93
+
+tract2 <- 1:55
+dim(DTI.baseline$rcst) #66 55
+
+matplot(tract, t(DTI.baseline$cca), 
+        type='l', lty=1, col=rainbow(n),
+        main = "Diffusion Tensor Imaging1 : CCA",
+        xlab="tract", ylab="Fractional anisotropy (FA)")
+
+matplot(tract2, t(DTI.baseline$rcst), 
+        type='l', lty=1, col=rainbow(n),
+        main = "Diffusion Tensor Imaging2 : rcst",
+        xlab="tract2", ylab="Fractional anisotropy (FA)")
+
+set.seed(245)
+n.crv <- 5
+sel.crv <- sample(1:n, size=n.crv, replace = FALSE)
+
+matplot(tract, t(DTI.baseline$cca), 
+        type='l', lty=1, col="light grey",
+        main = "Diffusion Tensor Imaging1 : CCA",
+        xlab="tract", ylab="Fractional anisotropy (FA)")
+
+matlines(tract, t(DTI.baseline$cca[sel.crv,]), 
+         type='l', lty=1, col=rainbow(n)[sel.crv])
+
+matplot(tract, t(DTI.baseline$cca), type='l', lty=1, col='lightgrey',
+        main = "Diffusion Tensor Imaging1 : CCA",
+        xlab="tract", ylab="Fractional anisotropy (FA)")
+sampleMean <- colMeans(DTI.baseline$cca)
+lines(tract, sampleMean, lty=2, lwd=2, col='red')
+
+matplot(tract2, t(DTI.baseline$rcst), type='l', lty=1, col='lightgrey',
+        main = "Diffusion Tensor Imaging2 : rcst",
+        xlab="tract", ylab="Fractional anisotropy (FA)")
+sampleMean <- colMeans(DTI.baseline$rcst)
+lines(tract2, sampleMean, lty=2, lwd=2, col='red')
+
+## 2D rainbow plot 
+clrs <- rev(colorRampPalette(c("blue", "green", "yellow", "red"))(40))    
+colfct <- as.numeric(cut(DTI.baseline$pasat, 40))
+matplot(tract, t(DTI.baseline$cca), 
+        type = 'l', col = clrs[colfct], lty = 1, 
+        ylab = "Fractional Anisotropy",
+        xlab = "Distance Along Tract", ylim = range (.2, .85))
+
+## 3D rainbow plot
+par(mar=c(1,1,0,0), cex.axis=1, cex.lab=1)
+clrs <- rev(colorRampPalette(c("blue", "green", "yellow", "red"))(40))    
+?rev
+proj = persp(x = tract, y = seq(min(DTI.baseline$pasat), max(DTI.baseline$pasat), l=length(DTI.baseline$pasat)),  z=t(DTI.baseline$cca),
+             xlab="tract", ylab="PASAT", zlab="FA", col=NA, border=NA,
+             ticktype = "detailed", axes=TRUE, theta=30, phi=30)
+
+o <- rev(order(DTI.baseline$pasat))
+for(i in o){
+  lines(trans3d(x = tract, y=rep(DTI.baseline$pasat[i], ncol(DTI.baseline$cca)),  z=DTI.baseline$cca[i,], pmat=proj), col=clrs[colfct[i]])
+}
+```
+
+### cov
+```{r}
+library(fields)
+sampleCov <- cov(DTI.baseline$cca)
+image.plot(tract, tract, sampleCov, main='sample covariance1 of FA: CCA')
+
+sampleCov1 <- cov(DTI.baseline$rcst)
+image.plot(tract2, tract2, sampleCov1, main='sample covariance2 of FA: rcst')
+
+dim(cov(DTI.baseline$cca))
+tick <- seq(1,93, by = 10)
+persp(tract[tick], tract[tick], sampleCov[tick,tick],
+            xlab="track", ylab="track", zlab="", 
+      main="Sample Covariance of FA: CCA",
+      theta = 30, phi = 30, col='light grey', shade=0.1)
+
+tick2 <- seq(1,55, by = 10)
+persp(tract2[tick2], tract2[tick2], sampleCov1[tick2,tick2],
+            xlab="track", ylab="track", zlab="", 
+      main="Sample Covariance of FA: rcst",
+      theta = 30, phi = 30, col='light grey', shade=0.1)
+
+library(lattice)
+x <- rep(tract[tick], length(tract[tick]))
+y <- rep(tract[tick], each = length(tract[tick]))
+z <- as.vector(sampleCov[tick, tick])
+dat <- data.frame(x=x, y=y, z=z)
+wireframe(z ~ x*y, data =dat, 
+  xlab="tract", ylab="tract", zlab="",
+  main="Sample Covariance of FA: CCA",
+  drape = TRUE,
+  colorkey = TRUE,
+  screen = list(z = -60, x = -60)
+)
+
+sampleCor <- cor(DTI.baseline$cca)
+image.plot(tract, tract, sampleCor, main='sample correlation of FA: CCA')
+
+sampleCor2 <- cor(DTI.baseline$rcst)
+image.plot(tract2, tract2, sampleCor2, main='sample correlation of FA: rcst')
+
+```
+

@@ -1,0 +1,116 @@
+---
+title: "DTI_fpca"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(refund)
+data(DTI)
+DTI.complete <- subset(DTI, complete.cases(DTI))
+DTI.baseline <- subset(DTI.complete, visit == 1 & case == 1)
+tract <- 1:93
+n <- length(unique(DTI.baseline$ID))
+```
+
+```{r}
+matplot(tract, t(DTI.baseline$cca), 
+        type='l', lty=1, col="light grey",
+        main = "Diffusion Tensor Imaging : CCA",
+        xlab="tract", ylab="Fractional anisotropy (FA)")
+sel.crv <- sample(1:n, size = 3, replace = FALSE)
+matlines(tract, t(DTI.baseline$cca[sel.crv,]), 
+         type='l', lty=1, lwd=2, col = rainbow(3))
+
+library(mgcv)
+
+smooth.curves <- array(0, dim(DTI.baseline$cca))
+n <- nrow(DTI.baseline$cca)
+for(j in 1:n){
+  # j = 1
+  fit <- gam(DTI.baseline$cca[j,] ~ s(tract, k = 10, bs = 'cr'), method = "REML")
+  # plot(tract, DTI.baseline$cca[j,])
+  # lines(tract, fit$fitted)
+  smooth.curves[j,] <- fit$fitted
+}
+
+matplot(tract, t(DTI.baseline$cca[sel.crv,]), 
+         type='l', lty=3, lwd=1, col = rainbow(3))
+matlines(tract, t(smooth.curves[sel.crv,]), 
+         type='l', lty=1, lwd=1, col = rainbow(3))
+
+library(fields)
+smooth.cov <- cov(smooth.curves)
+image.plot(tract, tract, smooth.cov, 
+           main='Smooth covariance of FA (Approach 2)')
+
+svd.result0 <- eigen(smooth.cov, symmetric = TRUE)
+# names(svd.result0)
+
+evectors <- svd.result0$vectors[,svd.result0$values > 0]
+evalues <- svd.result0$values[svd.result0$values > 0]
+
+head(colSums(evectors^2)) # returns unitary vectors 
+
+efns0 <- evectors*sqrt(93)
+evals0 <- evalues/93
+pve <- cumsum(evals0)/sum(evals0)
+npc <- sum(pve < 0.95) + 1
+
+# truncated estimated eigen components
+efns <- efns0[,1:npc]
+evals <- evals0[1:npc]
+
+plot(1:20, pve[1:20], pch = 16, 
+     ylab="percentage of variance explained", xlab="number of PCs",
+     main="scree plot")
+abline(h = 0.95, lty=2, col='red')
+
+matplot(tract, efns[,1:5], col=rainbow(5), 
+        type='l', lty=1, lwd=2,
+        ylab="eigenfunctions", xlab="tract",
+        main="First 5 eigenfunctions")
+
+k.pc <- 1
+effect <- efns[, k.pc]*2*sqrt(evals[k.pc])
+mean.hat <- colMeans(smooth.curves)
+mat <- cbind(mean.hat - effect,  mean.hat + effect)
+
+plot(tract, efns[,k.pc], lty=1, lwd=2, type='l', ylim=c(-2,2),
+     main = paste0("fPC",k.pc), ylab="", xlab="tract" )
+abline(h = 0, lty=3)
+
+matplot(tract, mat, type='p', col=c(2,4), pch = c("-", "+"),
+        ylab="", xlab="tract", 
+        main = paste0("fPC",k.pc, " (",round(pve[k.pc]*100),"%)"))
+lines(tract, mean.hat, lty=1, lwd=1)
+
+demeaned <- DTI.baseline$cca - t(matrix(rep(mean.hat, n),
+                                        nrow=length(mean.hat)))
+
+scores <- matrix(NA, nrow=n, ncol=npc)
+fitted <- array(NA, dim(DTI.baseline$cca))
+for(i in 1:n){
+  scores[i,] <- colMeans(matrix(rep(demeaned[i,], npc), nrow=93) * efns)
+  fitted[i,] <- mean.hat + scores[i,]%*%t(efns)
+}
+
+matplot(tract, t(DTI.baseline$cca[sel.crv,]), pch = "o", cex = 0.5,
+        ylab="", xlab="tract", main="Fitted curves")
+matlines(tract, t(fitted[sel.crv,]), type='l', lwd=2, lty=1)
+```
+
+## plot_shiny
+
+```{r cars}
+library(refund)
+library(refund.shiny)
+data(DTI)
+fpca.res <- fpca.sc(DTI.baseline$cca, pve = 0.95, var = TRUE)
+plot_shiny(fpca.res)
+```
+
