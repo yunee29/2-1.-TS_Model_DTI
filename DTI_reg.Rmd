@@ -1,0 +1,105 @@
+---
+title: "DTI_reg(FPC)"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+
+```{r}
+library(refund)
+data(DTI)
+attach(DTI)
+
+DTI.complete <- subset(DTI, complete.cases(DTI))
+DTI.baseline <- subset(DTI.complete, visit == 1 & case == 1)
+tract <- 1:93
+n <- length(unique(DTI.baseline$ID))
+X <- as.matrix(DTI.baseline$cca)
+Y <- DTI.baseline$pasat
+
+dim(X); length(Y)
+
+fpca_res <- fpca.sc(X, argvals = tract, pve=0.90)
+m <- length(tract)
+efn <- fpca_res$efunctions*sqrt(m)
+eval <- fpca_res$evalues/m
+scr <- fpca_res$scores/sqrt(m)
+npc <- fpca_res$npc
+
+matplot(tract, efn, type='l', lty=1, lwd=2,
+        col=rainbow(fpca_res$npc),
+        main = "Estimated eigenfunctions", ylab="",
+        xlab = "miles")
+legend("topleft", col = rainbow(fpca_res$npc), 
+       lwd=2, lty=1, legend = paste0("fPC", 1:fpca_res$npc),
+       cex = 1.5, bty = "n")
+
+k.pc <- 1
+effect <- sqrt(eval[k.pc])*efn[,k.pc]
+mu_hat <- fpca_res$mu
+
+plot(tract, efn[,k.pc], type='l', lwd=2, lty=1, 
+     xlab = "tract", ylab="", main = paste("fPC", k.pc))
+
+matplot(tract, cbind(mu_hat-effect, mu_hat+effect), 
+        col=c("red", "blue"), pch = c("-", "+"),
+        main = paste0("fPC", k.pc), 
+        xlab = "tract", ylab="")
+lines(tract, mu_hat, lwd=2)
+
+library(refund.shiny)
+plot_shiny(fpca_res)
+
+out = lm(Y ~ scr)
+# summary(out)
+beta_hat = out$coefficients
+beta_hat
+
+par(mfrow=c(1,1))
+beta_fn_hat  = efn%*% as.matrix(beta_hat[-1], col=1)
+plot(tract, beta_fn_hat, type='l', lwd=2,
+     xlab="tract", ylab = "", main="estimated coefficient fn")
+
+set.seed(12)
+n.crv <- 3
+sel.crv <- sample(1:n, size=n.crv, replace = FALSE)
+# sel.crv
+
+matplot(tract, t(fpca_res$Yhat[sel.crv,]), type='l', lwd=2, lty=1,
+        xlab="tract", ylab="speed", main="Three randomly selected curves")
+
+par(mfrow=c(3,3))
+for(i in 1:3){
+    ind <- sel.crv[i]
+    demeaned <- fpca_res$Yhat[ind,]-as.vector(fpca_res$mu)
+    
+    matplot(tract, t(fpca_res$Yhat[sel.crv,]-t(matrix(rep(fpca_res$mu,3), nrow=93))), 
+            type='l', lwd=2, lty=1, col = 'light grey',
+        xlab="tract", ylab="speed (demeaned)", main="")
+    lines(tract, demeaned, type='l', lwd=2, col='red')
+    
+
+    plot(tract, beta_fn_hat, type='l', lwd=2,
+         xlab="tract", ylab = "estimated coefficient fn", main="")
+    plot(tract, demeaned*beta_fn_hat,type='l', lwd=2, col='blue',
+         xlab="tract", ylab = "", ylim=c(-55, 70),
+         main=round(mean(demeaned*beta_fn_hat), 2))
+}
+
+par(mfrow=c(1,1))
+plot(Y, out$fitted, cex=0.5, ylab="Fitted", xlab="Observed")
+abline(a = 0, b = 1)
+
+Rsq = 1-sum((out$residuals)^2)/sum((Y- mean(Y))^2)
+Rsq
+
+```
+
+
+
+
